@@ -1,0 +1,213 @@
+# Lance Codebase + Rust Learning Course
+
+This is a self-paced, 5-day curriculum to get you from "knows Rust basics" to "can confidently navigate, read, and contribute to Lance." Each day is about 4 hours of focused work split into reading, code-exploration, and one or two hands-on exercises.
+
+The curriculum is grounded in **this exact repository** — every file path, line reference, and example points at real code in the workspace. Don't just read; open the files I link, paste lines into a scratch buffer, and tweak them.
+
+## How to use this course
+
+Read the files in this order. The numbers in parentheses are the suggested time budget; if a topic clicks fast, move on, and if a topic resists, slow down — Lance is built up in layers, and skipping a layer costs you later.
+
+1. `README.md` — this file. **Read it fully before day 1.** (30 min)
+2. `rust-patterns-in-lance.md` — a cheatsheet of Rust idioms you will see over and over in this codebase. Skim it now, then keep it open in a tab while reading the daily lessons. (20 min)
+3. `day1.md` — Rust fundamentals tailored to Lance + a guided tour of the workspace. (~4h)
+4. `day2.md` — `lance-core`, `lance-arrow`, `lance-io`. Foundational layers. (~4h)
+5. `day3.md` — `lance-encoding` and `lance-file`. The on-disk format. (~4h)
+6. `day4.md` — `lance-table` (manifest/fragments/transactions) and the top-level `lance::Dataset`/`Scanner`/write paths. (~4h)
+7. `day5.md` — Vector and scalar indices, then Python bindings and where to go next. (~4h)
+8. `glossary.md` — keep open while reading; refer to it whenever a term is unclear.
+9. `exercises.md` — hands-on tasks per day. Don't skip these. Reading without writing rusts (pun intended) fast.
+
+## What this course assumes
+
+You said you are new to Rust and know "the basics." Concretely, I assume you can:
+
+- Read a function with `let`, `if let`, `match`, `for` loops, and tuples without looking things up.
+- Roughly explain what `&T`, `&mut T`, and ownership move semantics mean.
+- Recognize `Vec<T>`, `Option<T>`, `Result<T, E>`, and `String`.
+
+If any of those is shaky, do the **first 4 chapters** of the [Rust Book](https://doc.rust-lang.org/book/) or [Rustlings](https://github.com/rust-lang/rustlings) before starting day 1. About 6–8 hours of prep is enough.
+
+This course does **not** assume you know:
+
+- Async Rust (`async`/`.await`, `Future`, `Pin`, runtimes, `tokio`)
+- Trait objects (`dyn Trait`) and generics with trait bounds
+- Smart pointers beyond `Box` (you will meet `Arc`, `Rc`, `RefCell`, `OnceLock`, `LazyLock`)
+- Error handling with `thiserror`/`snafu` and the `?` operator across error types
+- Apache Arrow
+
+I will introduce all of these inline in day 1 and reinforce them across days 2–5.
+
+## Environment setup
+
+Lance pins its toolchain and tooling for reproducibility — use the project's versions, not whatever is on your system.
+
+### Rust toolchain
+
+```bash
+# From the repo root. rustup will read rust-toolchain.toml and pin you to the right version.
+rustup show
+rustc --version   # should match what rust-toolchain.toml declares (1.91 at time of writing)
+```
+
+The repo also pins specific clippy/format settings via `clippy.toml`, `.clang-format`, and `.cargo/config.toml`. Don't fight them; just run the project commands.
+
+### Build everything once (catch any environment issues now)
+
+```bash
+cargo check --workspace --tests --benches
+```
+
+This typically takes 5–15 minutes the first time and a few seconds on later runs. If it fails, fix the environment **before** starting day 1. Common fixes:
+
+- macOS: install Xcode CLI tools (`xcode-select --install`) for `clang`/`ld`.
+- Linux: install `protobuf-compiler` (`protoc`), `pkg-config`, `libssl-dev`. Several crates run `prost-build` at compile time and need `protoc`.
+
+### Run the smoke tests
+
+```bash
+# Single crate, fast
+cargo test -p lance-core
+
+# A real example program — writes and reads a tiny dataset
+cargo run -p lance-examples --example write_read_ds
+```
+
+If `write_read_ds` runs end-to-end you have everything you need.
+
+### Python (optional, for day 5)
+
+Day 5 touches the Python bindings. Per `python/AGENTS.md` you must use `uv`:
+
+```bash
+cd python
+uv sync --extra tests --extra dev
+uv run python -c "import lance; print(lance.__version__)"
+```
+
+`uv sync` builds the local `pylance` Rust extension and is slow the first time. Start it before lunch on day 5 and let it run in the background while you read.
+
+## What is Lance, in one paragraph
+
+Lance is a columnar table format like Parquet, but designed for AI/ML workloads: it makes random access cheap (~100x faster than Parquet), it has built-in vector and full-text indices, it supports zero-copy versioning (each write produces a new manifest, old data is unchanged), and it stores blobs (images, audio) efficiently. The Rust workspace implements the format from the bytes on disk all the way up to a SQL-ish scan API; Python and Java are thin bindings over Rust.
+
+## Architecture in one picture
+
+```
++---------------------------------------------------------------+
+|  Python (PyO3)        Java (JNI)        CLI tools             |
++---------------------------------------------------------------+
+|                                                               |
+|                    rust/lance/  (top-level crate)             |
+|         Dataset, Scanner, write, optimize, transactions       |
+|                                                               |
++---------------------------------------------------------------+
+|       lance-index      |       lance-datafusion               |
+|  vector/scalar indices |  DataFusion physical plans           |
++------------------------+--------------------------------------+
+|                       lance-table                             |
+|     Manifest, Fragments, RowIDs, IndexMetadata, commit        |
++---------------------------------------------------------------+
+|                       lance-file                              |
+|         FileReader/FileWriter (.lance file format)            |
++---------------------------------------------------------------+
+|                       lance-encoding                          |
+|   logical/physical encoders, compression, repdef, statistics  |
++---------------------------------------------------------------+
+|     lance-io           |   lance-arrow      |   lance-core    |
+|  ObjectStore, scheduler|  arrow utilities   | errors, types,  |
+|  reader/writer, uring  |  schema conversion |  cache, masks   |
++---------------------------------------------------------------+
+|        Foundations (3rd-party): tokio, arrow-rs,              |
+|        object_store, datafusion, prost, snafu, futures        |
++---------------------------------------------------------------+
+```
+
+You will read this stack **bottom-up** over the week. Bottom-up matters because every layer depends on the layer below it; if you start at `Dataset::scan()` you will be drowning in 8 unfamiliar abstractions in 5 minutes.
+
+## Major Rust libraries you will meet
+
+You don't need to learn all of these in advance — I'll introduce each one when it first appears. But here is the cast of characters so the names aren't strangers when they show up.
+
+### Async and concurrency
+- **`tokio`** — async runtime. Every public API in Lance is `async fn`. ([docs](https://docs.rs/tokio))
+- **`futures`** — combinators (`StreamExt`, `TryStreamExt`, `BoxFuture`, `FutureExt`). The bridge between async and iterator-style code. ([docs](https://docs.rs/futures))
+- **`async-trait`** — macro that lets traits have `async fn` methods. Pre-Rust-1.75 workaround you'll still see everywhere. ([docs](https://docs.rs/async-trait))
+- **`pin-project`** — derives a safe API for `Pin<&mut Self>` projection. Mostly invisible until you write a custom `Future` or `Stream`. ([docs](https://docs.rs/pin-project))
+
+### Apache Arrow ecosystem
+- **`arrow`, `arrow-array`, `arrow-schema`, `arrow-buffer`, `arrow-ipc`, `arrow-select`, `arrow-cast`, `arrow-ord`** — the columnar memory format. **The single most important external dependency.** Lance speaks Arrow at every API boundary.
+- **`datafusion`** — query engine; Lance plugs scan/index nodes into DataFusion's physical plans. ([docs](https://docs.rs/datafusion))
+
+### Storage and I/O
+- **`object_store`** — uniform local/S3/Azure/GCS API. Lance wraps it with `lance-io::object_store::ObjectStore` for tracing, throttling, and credential refresh.
+- **`bytes`** — cheaply-cloneable byte buffer (`Bytes`). The currency for raw I/O reads.
+- **`io-uring`** (Linux only) — fast async syscalls. Optional, off by default for the curriculum.
+
+### Errors, serialization, and traits
+- **`snafu`** — error enum derive macro with location capture. Lance's `lance-core::Error` uses it. ([docs](https://docs.rs/snafu))
+- **`prost`** — Protocol Buffers codegen (build-time `prost-build` reads `.proto` files in `protos/`). The on-disk Manifest, Fragment, IndexMetadata, etc. are protos.
+- **`serde`** / `serde_json` — for human-readable metadata.
+- **`deepsize`** — derive macro that reports an in-memory object's deep allocated size; used for cache size accounting.
+
+### Utility
+- **`roaring`** — `RoaringBitmap`, a compressed `Set<u32>`/`Set<u64>`. Used everywhere that you'd reach for a `HashSet<u32>` (fragment ids, deletion vectors, prefilter masks).
+- **`rangemap`**, **`bitvec`**, **`half`** (`f16`/`bf16`), **`uuid`** — small, focused libraries used in specific places.
+- **`moka`** — concurrent in-memory cache. Backs the dataset metadata/index cache.
+- **`tracing`** — structured logging and spans. **Always prefer `tracing::info!` over `println!`.**
+- **`itertools`** — extra iterator combinators.
+
+### Linear algebra and vector search
+- **`lance-linalg`** (in-tree) — SIMD-optimized dot product, L2, cosine, k-means.
+- **`ndarray`** — n-dimensional arrays for some training paths.
+
+You'll mostly *use* these via Lance's wrappers; deep dives are not required.
+
+## Tips for staying out of the weeds
+
+A codebase this large has rabbit holes. Five rules to stay productive:
+
+1. **Read top-down for goals, bottom-up for mechanics.** When you ask "how does Lance write a row?" start at `Dataset::write` and follow the call graph downward only as far as needed. When you ask "what is a fragment, really?" start at the proto and work up.
+2. **Use `cargo doc --open -p <crate>`** to get a hyperlinked module browser per crate. Faster than `grep` for "what's in this crate?"
+3. **`rg` (ripgrep) is your friend.** `rg "fn write" rust/lance/src/dataset/` is faster and quieter than `find | xargs grep`.
+4. **Keep a "questions" file.** When something doesn't fit, write the question down and keep going. By the end of the week 80% will have answered themselves.
+5. **Trust the layer above you.** When reading `lance-io`, treat `arrow-rs` as a black box. When reading `lance-file`, treat `lance-encoding` as a black box. Otherwise you'll never finish.
+
+## What I (Kiro) can do to help you accelerate
+
+You asked what else I can do. Here are concrete offers — pick whichever you find useful and tell me to do them:
+
+1. **Index this repo as a searchable knowledge base.** I can build a semantic search index over the Rust source so you can ask "where is the manifest written?" or "show me the IVF index build path" and get pointers. Say *"index the codebase for Q&A."*
+2. **Daily Q&A.** At the end of each day, paste me your questions and I'll answer them by reading the code (not from memory), citing line numbers.
+3. **Mini-PR exercises.** I can give you one focused, real, beginner-friendly task per day (e.g., "add a doc comment to `Dataset::open`," "extract a helper from `Scanner::try_into_stream`," "write a test for `RowAddress::new`") and review your diff.
+4. **Code-walk a specific feature.** Pick any feature ("how does `nearest=` work end-to-end?") and I'll produce an annotated trace from the public API down to the I/O calls.
+5. **Build a focused glossary on demand.** The bundled `glossary.md` covers the basics; if you hit jargon I missed, I'll add to it.
+6. **Run things for you.** Build, test, run examples, profile — I can execute commands and surface the relevant output instead of you context-switching to a terminal.
+7. **Translate Rust idioms.** When you see something baffling, paste it and I'll explain it in terms of languages you already know (Python/Java/C++).
+
+Default suggestion: after you finish day 1, ask me to *"index the codebase for Q&A"* — that's the single highest-leverage accelerator for the rest of the week.
+
+## A note on file size
+
+Some files in this repo are huge by design:
+
+- `rust/lance/src/dataset.rs` — ~131 KB
+- `rust/lance/src/dataset/scanner.rs` — ~423 KB
+- `rust/lance/src/dataset/write.rs` — ~112 KB
+- `rust/lance/src/index.rs` — ~266 KB
+
+Don't try to read these end-to-end. They are dispatch hubs that import from many submodules. You'll dip into them surgically — the daily lessons tell you which functions to read, with line ranges.
+
+## Where to look for repo conventions
+
+- `AGENTS.md` (root) — coding standards, naming, error handling, testing.
+- `rust/AGENTS.md` — Rust-specific style, performance, and API rules.
+- `python/AGENTS.md`, `java/AGENTS.md`, `protos/AGENTS.md` — domain-specific.
+- `CONTRIBUTING.md` — contributor workflow.
+- `skills/lance-user-guide/SKILL.md` — a *user-facing* guide that's also great for understanding API design intent.
+
+When in doubt, read the relevant `AGENTS.md` first; it's the single best source of "what does this project care about?"
+
+## Ready?
+
+Open `day1.md` and start. Good luck.
